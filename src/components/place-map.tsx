@@ -4,6 +4,11 @@ import dynamic from "next/dynamic";
 import { useEffect, useRef, useState } from "react";
 import { importLibrary, setOptions } from "@googlemaps/js-api-loader";
 import { hasCoordinates, locationLabel, type Place } from "@/lib/places";
+import {
+  requestMapPermit,
+  parseMapPermit,
+  type MapPermit,
+} from "@/lib/map-budget";
 
 const OpenStreetMap = dynamic(() => import("./openstreet-map"), { ssr: false });
 const apiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY?.trim();
@@ -22,6 +27,8 @@ function GoogleMap({ places, selected, onSelect, picking, onPick }: Props) {
   const [map, setMap] = useState<google.maps.Map | null>(null);
   const [error, setError] = useState(false);
   const [fallback, setFallback] = useState(false);
+  const [fallbackReason, setFallbackReason] = useState("");
+  const permitRequest = useRef<Promise<MapPermit> | null>(null);
   const handlers = useRef({ onSelect, onPick, picking });
   useEffect(() => {
     handlers.current = { onSelect, onPick, picking };
@@ -40,6 +47,19 @@ function GoogleMap({ places, selected, onSelect, picking, onPick }: Props) {
     const timeout = window.setTimeout(authFailure, 20000);
     async function initialize() {
       try {
+        // One reservation per mounted map, including React Strict Mode replay.
+        permitRequest.current ??= requestMapPermit();
+        const permit = await permitRequest.current;
+        if (cancelled) return;
+        if (!permit.allowed) {
+          setFallbackReason(
+            permit.reason === "limit_reached"
+              ? "이번 달 Google 지도 사용 한도에 도달해 OpenStreetMap으로 표시합니다."
+              : "Google 지도 사용량을 확인할 수 없어 OpenStreetMap으로 표시합니다.",
+          );
+          setFallback(true);
+          return;
+        }
         if (!configured) {
           setOptions({ key: apiKey, v: "quarterly", language: "ko" });
           configured = true;
@@ -49,6 +69,13 @@ function GoogleMap({ places, selected, onSelect, picking, onPick }: Props) {
           importLibrary("marker"),
         ]);
         if (cancelled || !host) return;
+        if (!parseMapPermit(permit).allowed) {
+          setFallbackReason(
+            "지도 연결 시간이 초과되어 OpenStreetMap으로 표시합니다.",
+          );
+          setFallback(true);
+          return;
+        }
         instance = new Map(host, {
           center: { lat: 22.309, lng: 114.169 },
           zoom: 12,
@@ -175,7 +202,14 @@ function GoogleMap({ places, selected, onSelect, picking, onPick }: Props) {
 
   if (fallback)
     return (
-      <OpenStreetMap {...{ places, selected, onSelect, picking, onPick }} />
+      <div className="map-canvas">
+        <OpenStreetMap {...{ places, selected, onSelect, picking, onPick }} />
+        {fallbackReason && (
+          <div className="map-provider-note" role="status">
+            {fallbackReason}
+          </div>
+        )}
+      </div>
     );
   return (
     <div className={"map-canvas " + (picking ? "picking" : "")}>

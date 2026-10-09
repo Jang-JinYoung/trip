@@ -46,6 +46,16 @@ http://localhost:3000 에서 엑셀 가져오기를 누르고 `01_instagram_DM_h
 
 Google Dynamic Maps는 월 10,000회 로드까지 무료이며 이후 사용량에 따라 청구됩니다. Places·경로 API는 이 구현에서 호출하지 않습니다. [요금표](https://developers.google.com/maps/billing-and-pricing/pricing), [API 키 제한](https://developers.google.com/maps/api-security-best-practices)을 확인하세요. 예산 알림은 비용을 차단하는 기능이 아닙니다.
 
+### 월간 Google 지도 차단
+
+- 새 Google 지도를 생성하기 **전에** `/api/maps/reserve`에서 사용 횟수를 예약합니다. Supabase의 원자적 업데이트로 모든 사용자·기기·개발/운영 서버의 합계를 집계하여 **9,899회까지만 허용하고 9,900번째부터 차단**합니다. 필터·마커 선택·지도 이동은 새 로드로 세지 않습니다.
+- 차단되거나 DB·서버·네트워크 오류가 나면 Google 지도를 생성하지 않고 OpenStreetMap으로 표시합니다. 한 번 예약한 횟수는 지도 로드가 실패해도 돌려주지 않아 보수적으로 집계합니다. React 개발 모드의 effect 재실행은 같은 예약을 재사용합니다.
+- 월 구분은 Google 무료 사용량과 같은 미국 태평양 시간(`America/Los_Angeles`)을 따릅니다. 다음 달에는 새 집계 행을 사용합니다. 월말 마지막 30초는 차단하며, 허가는 15초 내 지도 생성에만 사용합니다.
+- Supabase SQL Editor에서 `supabase/map-budget.sql`을 실행하고 서버 전용 `SUPABASE_SERVICE_ROLE_KEY`를 설정합니다. 테이블과 예약 함수는 `anon`/`authenticated`에 공개하지 않으며 서버에서만 호출합니다. 키는 절대 `NEXT_PUBLIC_`로 만들지 마세요. 기존 Vercel Supabase 연결은 이 서버 키를 제공합니다.
+- 초기에는 **비활성화** 상태입니다. 관리자만 이번 달 기존 Dynamic Maps 사용량을 확인해 `google_map_monthly_usage`의 현재 월 `loads`에 반영한 뒤 `google_map_budget_settings.enabled`를 켭니다. 이미 예약된 값을 낮추거나 월별 행을 삭제하면 차단 보장이 깨집니다.
+
+이것은 **이 앱에서 예약하는 지도 로드의 상한**이며 Google의 청구 상한이 아닙니다. Google 무료 한도는 동일 결제 계정의 다른 프로젝트 사용량과 합산됩니다. 기존 사용량, 다른 앱, 공개 키를 이용한 직접 호출은 이 카운터로 자동 파악/차단할 수 없습니다. 전용 프로젝트/키와 웹사이트·API 제한을 함께 사용하고 Google 콘솔 사용량을 확인하세요. 브라우저 키 공개 동의와 배포 절차는 별도입니다.
+
 ### 내 Google 지도에서 보기
 
 상단 **내 Google 지도로**에서 My Maps용 CSV를 받습니다. 필터와 관계없이 전체 목록의 유효한 좌표가 있는 장소만 포함하며, 장소명·설명·메모·방문상태·희망일·위치 정확도·출처를 보존합니다. 위치 미지정과 여행 정보는 제외됩니다. 2,000개를 넘으면 파일을 나눠 각각 다운로드할 수 있습니다.
