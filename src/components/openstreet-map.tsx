@@ -34,33 +34,39 @@ function Controls({
       lat: number;
       lng: number;
     }[];
-    const p = located.find((p) => p.id === focus?.id);
-    const changed = cameraPositions.current !== positions;
-    cameraPositions.current = positions;
-    if (p)
-      map.setView(
-        [p.lat, p.lng],
-        focus?.zoom === false ? map.getZoom() : Math.max(map.getZoom(), 16),
-        {
-          animate: false,
-        },
-      );
-    else if (changed && located.length)
-      map.fitBounds(L.latLngBounds(located.map((p) => [p.lat!, p.lng!])), {
-        padding: [45, 45],
-        maxZoom: 15,
-      });
+    const host = map.getContainer();
+    // Defer camera changes while the mobile list tab hides the map.
+    let pendingCamera = true;
+    const resize = () => {
+      if (!host.clientWidth || !host.clientHeight) return;
+      map.invalidateSize({ pan: false });
+      if (!pendingCamera) return;
+      pendingCamera = false;
+      const p = located.find((p) => p.id === focus?.id);
+      const changed = cameraPositions.current !== positions;
+      cameraPositions.current = positions;
+      if (p)
+        map.setView(
+          [p.lat, p.lng],
+          focus?.zoom === false ? map.getZoom() : Math.max(map.getZoom(), 16),
+          { animate: false },
+        );
+      else if (changed && located.length)
+        map.fitBounds(L.latLngBounds(located.map((p) => [p.lat, p.lng])), {
+          padding: [45, 45],
+          maxZoom: 15,
+        });
+    };
+    resize();
+    const observer = new ResizeObserver(resize);
+    observer.observe(host);
+    return () => observer.disconnect();
   }, [positions, focus, map]);
   useMapEvents({
     click: (e) => {
       if (picking) onPick(e.latlng.lat, e.latlng.lng);
     },
   });
-  useEffect(() => {
-    const observer = new ResizeObserver(() => map.invalidateSize());
-    observer.observe(map.getContainer());
-    return () => observer.disconnect();
-  }, [map]);
   return null;
 }
 export default function PlaceMap({

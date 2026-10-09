@@ -95,7 +95,7 @@ export default function Workspace({
     [toast, setToast] = useState(""),
     [busy, setBusy] = useState(false),
     [picking, setPicking] = useState(false),
-    [mobileMap, setMobileMap] = useState(false),
+    [mobileMap, setMobileMap] = useState(true),
     [authOpen, setAuthOpen] = useState(false),
     [instagramOpen, setInstagramOpen] = useState(false),
     [results, setResults] = useState<GeoResult[]>([]),
@@ -184,15 +184,19 @@ export default function Workspace({
     ...Array.from(new Set(places.map((p) => p.category))),
   ];
   const located = places.filter(hasCoordinates).length;
-  const openPlace = useCallback((p: Place, focusMap = true, creating = false) => {
-    setSelected(p.id);
-    setMapFocus({ id: p.id, zoom: focusMap });
-    setDraft({ ...p });
-    setCreatingPlace(creating);
-    setResults([]);
-    setGeoQuery(p.address || p.name);
-    setPicking(false);
-  }, []);
+  const openPlace = useCallback(
+    (p: Place, focusMap = true, creating = false) => {
+      if (hasCoordinates(p)) setMobileMap(true);
+      setSelected(p.id);
+      setMapFocus({ id: p.id, zoom: focusMap });
+      setDraft({ ...p });
+      setCreatingPlace(creating);
+      setResults([]);
+      setGeoQuery(p.address || p.name);
+      setPicking(false);
+    },
+    [],
+  );
   const selectMapPlace = useCallback(
     (id: string) => {
       const place = places.find((p) => p.id === id);
@@ -597,12 +601,6 @@ export default function Workspace({
                 <Plus size={16} />
                 장소 추가
               </button>
-              <button
-                className="button small mobile-toggle"
-                onClick={() => setMobileMap(!mobileMap)}
-              >
-                {mobileMap ? <List size={16} /> : <MapIcon size={16} />}
-              </button>
             </div>
           </div>
           <div className="category-tabs">
@@ -618,6 +616,26 @@ export default function Workspace({
                 {c === "전체" && <span>{places.length}</span>}
               </button>
             ))}
+          </div>
+          <div
+            className="mobile-view-switch"
+            role="group"
+            aria-label="보기 방식"
+          >
+            <button
+              className={mobileMap ? "active" : ""}
+              aria-pressed={mobileMap}
+              onClick={() => setMobileMap(true)}
+            >
+              <MapIcon size={17} /> 지도
+            </button>
+            <button
+              className={!mobileMap ? "active" : ""}
+              aria-pressed={!mobileMap}
+              onClick={() => setMobileMap(false)}
+            >
+              <List size={17} /> 목록 <span>{filtered.length}</span>
+            </button>
           </div>
           <div className={"board-content " + (mobileMap ? "show-map" : "")}>
             <div className="place-list">
@@ -771,7 +789,7 @@ export default function Workspace({
           className={"drawer-backdrop " + (picking ? "picking-backdrop" : "")}
         >
           <section
-            className="drawer"
+            className={"drawer " + (creatingPlace ? "" : "place-detail-drawer")}
             role="dialog"
             aria-modal={false}
             aria-labelledby="place-panel-title"
