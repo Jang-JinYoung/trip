@@ -54,7 +54,6 @@ const PlaceMap = dynamic(() => import("./place-map"), {
     </div>
   ),
 });
-const STORAGE = "trip-atlas-places-v1";
 type GeoResult = { lat: string; lon: string; display_name: string };
 function CategoryIcon({ category }: { category: string }) {
   const Icon = /카페|디저트/.test(category)
@@ -75,12 +74,16 @@ function download(name: string, content: string, type: string) {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 export default function Workspace({
-  initialPlaces = [],
+  initialPlaces,
+  user,
+  onLogout,
 }: {
-  initialPlaces?: Place[];
+  initialPlaces: Place[];
+  user: User;
+  onLogout: () => Promise<void>;
 }) {
-  const [places, setPlaces] = useState<Place[]>([]),
-    [ready, setReady] = useState(false),
+  const [places, setPlaces] = useState<Place[]>(initialPlaces),
+    [savedPlaces, setSavedPlaces] = useState<Place[]>(initialPlaces),
     [query, setQuery] = useState(""),
     [category, setCategory] = useState("전체"),
     [contentKind, setContentKind] = useState("all"),
@@ -94,13 +97,10 @@ export default function Workspace({
     [mobileMap, setMobileMap] = useState(false),
     [authOpen, setAuthOpen] = useState(false),
     [instagramOpen, setInstagramOpen] = useState(false),
-    [user, setUser] = useState<User | null>(null),
-    [email, setEmail] = useState(""),
-    [password, setPassword] = useState(""),
     [results, setResults] = useState<GeoResult[]>([]),
     [geoQuery, setGeoQuery] = useState(""),
-    [geoBusy, setGeoBusy] = useState(false),
-    [storageError, setStorageError] = useState(false);
+    [geoBusy, setGeoBusy] = useState(false);
+  const dirty = places !== savedPlaces;
   const fileRef = useRef<HTMLInputElement>(null),
     lastSearch = useRef(0),
     geoCache = useRef(new Map<string, GeoResult[]>());
@@ -147,68 +147,14 @@ export default function Workspace({
     };
   }, [dialogOpen, picking, authOpen, instagramOpen]);
   useEffect(() => {
-    try {
-      const raw = localStorage.getItem(STORAGE);
-      let saved: Place[] = [];
-      if (raw) {
-        const parsed = JSON.parse(raw);
-        if (
-          !Array.isArray(parsed) ||
-          !parsed.every(
-            (p) =>
-              p &&
-              typeof p.id === "string" &&
-              typeof p.name === "string" &&
-              typeof p.region === "string",
-          )
-        )
-          throw Error();
-        saved = parsed;
-      }
-      // Remember imported IDs so deleting a preview place stays effective after reload.
-      const seedKey = `${STORAGE}-local-imports`;
-      const imported: string[] = JSON.parse(
-        localStorage.getItem(seedKey) || "[]",
-      );
-      if (
-        !Array.isArray(imported) ||
-        !imported.every((id) => typeof id === "string")
-      )
-        throw Error();
-      const pending = initialPlaces.filter((p) => !imported.includes(p.id));
-      const merged = mergePlaces(saved, pending);
-      if (pending.length) {
-        localStorage.setItem(STORAGE, JSON.stringify(merged.places));
-        localStorage.setItem(
-          seedKey,
-          JSON.stringify([...imported, ...pending.map((p) => p.id)]),
-        );
-      }
-      setPlaces(merged.places);
-    } catch {
-      setStorageError(true);
-      setToast(
-        "저장된 데이터를 읽지 못했습니다. 원본을 덮어쓰지 않도록 자동 저장을 중단했습니다.",
-      );
-    }
-    setReady(true);
-    if (!supabase) return;
-    supabase.auth
-      .getSession()
-      .then(({ data }) => setUser(data.session?.user ?? null));
-    const { data } = supabase.auth.onAuthStateChange((_e, session) =>
-      setUser(session?.user ?? null),
-    );
-    return () => data.subscription.unsubscribe();
-  }, [initialPlaces]);
-  useEffect(() => {
-    if (ready && !storageError)
-      try {
-        localStorage.setItem(STORAGE, JSON.stringify(places));
-      } catch {
-        setToast("브라우저 저장 공간이 부족합니다. CSV로 내보내 주세요.");
-      }
-  }, [places, ready, storageError]);
+    if (!dirty) return;
+    const warn = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [dirty]);
   useEffect(() => {
     if (!toast) return;
     const t = setTimeout(() => setToast(""), 6000);
@@ -346,29 +292,6 @@ export default function Workspace({
       setGeoBusy(false);
     }
   }
-  async function authenticate(signUp: boolean) {
-    if (!supabase) return;
-    setBusy(true);
-    try {
-      if (password.length < 8)
-        throw Error("비밀번호는 8자 이상 입력해 주세요.");
-      const { error } = signUp
-        ? await supabase.auth.signUp({ email, password })
-        : await supabase.auth.signInWithPassword({ email, password });
-      if (error) throw error;
-      setToast(
-        signUp
-          ? "가입 요청을 보냈습니다. 이메일 인증 후 로그인해 주세요."
-          : "로그인했습니다. 클라우드 저장을 사용할 수 있습니다.",
-      );
-      if (!signUp) setAuthOpen(false);
-      setPassword("");
-    } catch (e) {
-      setToast(e instanceof Error ? e.message : "로그인에 실패했습니다.");
-    } finally {
-      setBusy(false);
-    }
-  }
   async function cloud(action: "save" | "load") {
     if (!supabase || !user) {
       setAuthOpen(true);
@@ -390,6 +313,7 @@ export default function Workspace({
           updated_at: new Date().toISOString(),
         });
         if (error) throw error;
+        setSavedPlaces(places);
         setToast("클라우드에 저장했습니다.");
       } else {
         const { data, error } = await supabase
@@ -405,6 +329,7 @@ export default function Workspace({
         if (!Array.isArray(data.places))
           throw Error("클라우드 데이터 형식을 확인해 주세요.");
         setPlaces(data.places);
+        setSavedPlaces(data.places);
         setDraft(null);
         setToast("클라우드에서 불러왔습니다.");
       }
@@ -465,7 +390,7 @@ export default function Workspace({
           </div>
           <div className="header-actions">
             <span className="save-indicator">
-              {storageError ? "저장 오류" : "이 브라우저에 저장"}
+              {dirty ? "저장하지 않은 변경 있음" : "클라우드 저장됨"}
             </span>
             <button className="button subtle" onClick={() => setAuthOpen(true)}>
               <Cloud size={16} />
@@ -692,9 +617,7 @@ export default function Workspace({
                 </span>
                 <span>등록 순</span>
               </div>
-              {!ready ? (
-                <div className="empty-state">저장된 장소를 불러오는 중…</div>
-              ) : !filtered.length ? (
+              {!filtered.length ? (
                 <div className="empty-state">
                   <div className="empty-icon">
                     <MapPin size={30} />
@@ -1256,104 +1179,48 @@ export default function Workspace({
               <Cloud size={24} />
             </span>
             <h2>여행 지도를 안전하게 보관하세요</h2>
-            {!supabase ? (
-              <>
-                <p>
-                  지금은 이 브라우저에 자동 저장됩니다. 다른 기기에서도
-                  사용하려면 Supabase 연결이 필요합니다.
-                </p>
-                <p className="setup-note">
-                  프로젝트의 .env.local에 Supabase URL과 공개 키를 추가하고,
-                  supabase/schema.sql을 실행한 뒤 앱을 다시 빌드해 주세요.
-                </p>
-                <button
-                  className="button full"
-                  onClick={() => setAuthOpen(false)}
-                >
-                  계속 사용하기
-                </button>
-              </>
-            ) : user ? (
-              <>
-                <p>{user.email}</p>
-                <button
-                  className="button primary full"
-                  disabled={busy}
-                  onClick={() => void cloud("save")}
-                >
-                  현재 목록 클라우드에 저장
-                </button>
-                <button
-                  className="button full"
-                  disabled={busy}
-                  onClick={() => void cloud("load")}
-                >
-                  클라우드 목록 불러오기
-                </button>
-                <small>
-                  클라우드는 버튼을 누를 때 저장됩니다. 다른 기기에서 수정했다면
-                  먼저 불러와 주세요.
-                </small>
-                <button
-                  className="text-button"
-                  onClick={async () => {
-                    await supabase!.auth.signOut();
-                    setUser(null);
-                    setToast(
-                      "로그아웃했습니다. 이 브라우저의 장소 목록은 유지됩니다.",
-                    );
-                  }}
-                >
-                  <LogOut size={15} />
-                  로그아웃
-                </button>
-              </>
-            ) : (
-              <form
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  void authenticate(false);
-                }}
-              >
-                <p>로그인 후 저장한 장소는 내 계정에서만 볼 수 있습니다.</p>
-                <label>
-                  이메일
-                  <input
-                    type="email"
-                    required
-                    autoComplete="email"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                  />
-                </label>
-                <label>
-                  비밀번호
-                  <input
-                    type="password"
-                    minLength={8}
-                    required
-                    autoComplete="current-password"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                  />
-                </label>
-                <button
-                  className="button primary full"
-                  disabled={busy}
-                  type="submit"
-                >
-                  로그인
-                </button>
-                <button
-                  className="button full"
-                  disabled={busy}
-                  type="button"
-                  onClick={() => void authenticate(true)}
-                >
-                  새 계정 만들기
-                </button>
-              </form>
-            )}
+            <p>{user.email}</p>
+            <button
+              className="button primary full"
+              disabled={busy}
+              onClick={() => void cloud("save")}
+            >
+              현재 목록 클라우드에 저장
+            </button>
+            <button
+              className="button full"
+              disabled={busy}
+              onClick={() => void cloud("load")}
+            >
+              클라우드 목록 다시 불러오기
+            </button>
+            <small>
+              로그인하면 내 계정의 목록을 자동으로 불러옵니다. 변경한 내용은
+              클라우드에 저장해 주세요.
+            </small>
+            <button
+              className="text-button"
+              disabled={busy}
+              onClick={async () => {
+                if (
+                  dirty &&
+                  !window.confirm(
+                    "저장하지 않은 변경 내용이 있습니다. 저장하지 않고 로그아웃할까요?",
+                  )
+                )
+                  return;
+                setBusy(true);
+                try {
+                  await onLogout();
+                } catch {
+                  setToast("로그아웃하지 못했습니다. 다시 시도해 주세요.");
+                  setBusy(false);
+                }
+              }}
+            >
+              <LogOut size={15} />
+              로그아웃
+            </button>
           </section>
         </div>
       )}

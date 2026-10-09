@@ -974,6 +974,46 @@ textarea {
   overflow: auto;
   box-shadow: 0 20px 80px #192c4633;
 }
+.login-screen {
+  min-height: 100dvh;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background:
+    radial-gradient(ellipse at top left, #e9efff, transparent 65%), var(--bg);
+}
+.login-card {
+  max-height: none;
+}
+.login-brand {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 23px;
+  font-weight: 700;
+  margin-bottom: 30px;
+}
+.login-brand svg {
+  color: var(--blue);
+  margin-right: 6px;
+}
+.login-brand span {
+  color: var(--blue);
+}
+.login-card h1 {
+  font-size: 26px;
+  margin: 22px 0 10px;
+}
+.login-loading {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.login-message {
+  background: var(--blue-light);
+  padding: 12px;
+  border-radius: 8px;
+}
 .modal-close {
   position: absolute;
   right: 17px;
