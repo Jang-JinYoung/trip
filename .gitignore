@@ -1,0 +1,11 @@
+node_modules/
+.next/
+out/
+.env*
+!.env.example
+.npm-cache/
+*.tsbuildinfo
+*.xlsx
+# Private Instagram source files stay local.
+01_instagram*
+.qa/
