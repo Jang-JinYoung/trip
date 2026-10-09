@@ -508,6 +508,71 @@ p {
   width: 100%;
   position: relative;
 }
+.google-map-container {
+  width: 100%;
+  height: 100%;
+}
+.google-map-loading {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: #e5eced;
+  color: var(--muted);
+}
+.map-provider-note {
+  position: absolute;
+  bottom: 30px;
+  left: 12px;
+  right: 12px;
+  z-index: 500;
+  width: fit-content;
+  padding: 7px 10px;
+  border-radius: 8px;
+  background: #fffffff0;
+  color: var(--muted);
+  font-size: 11px;
+  pointer-events: none;
+}
+.heading-actions {
+  flex-wrap: wrap;
+}
+.my-maps-dialog {
+  position: fixed;
+  inset: 0;
+  margin: auto;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  padding: 32px;
+  width: min(540px, calc(100vw - 32px));
+  max-height: calc(100dvh - 40px);
+  overflow-y: auto;
+  color: var(--ink);
+  background: #fff;
+  box-shadow: 0 20px 80px #17294035;
+}
+.my-maps-dialog::backdrop {
+  background: #17294035;
+}
+.my-maps-dialog h2 {
+  font-size: 22px;
+  margin: 20px 30px 14px 0;
+}
+.my-maps-dialog p,
+.my-maps-dialog ol {
+  font-size: 13px;
+  line-height: 1.8;
+  margin: 14px 0;
+}
+.my-maps-dialog ol {
+  padding-left: 20px;
+}
+.my-maps-dialog li + li {
+  margin-top: 8px;
+}
+.my-maps-dialog .button.full {
+  margin-top: 10px;
+}
 .leaflet-container {
   font-family: var(--font) !important;
   background: #e4eaed !important;
@@ -656,11 +721,13 @@ p {
 .modal-backdrop {
   position: fixed;
   inset: 0;
-  background: #17294035;
   z-index: 1000;
   display: flex;
   justify-content: flex-end;
-  backdrop-filter: blur(2px);
+}
+.drawer-backdrop {
+  background: transparent;
+  backdrop-filter: none;
 }
 .drawer {
   width: 450px;
@@ -890,6 +957,8 @@ textarea {
   font-size: 14px;
 }
 .modal-backdrop {
+  background: #17294035;
+  backdrop-filter: blur(2px);
   justify-content: center;
   align-items: center;
   padding: 20px;

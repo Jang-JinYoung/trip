@@ -9,6 +9,7 @@ out/
 # Private Instagram source files stay local.
 01_instagram*
 .qa/
+.local-data/
 .vercel/
 # Local tooling installed by the Vercel integration.
 .agents/

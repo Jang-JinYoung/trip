@@ -1,4 +1,5 @@
 export type Place = {
+  kind?: "place" | "information";
   id: string;
   sourceId: string;
   name: string;
@@ -18,6 +19,11 @@ export type Place = {
   note: string;
   lat: number | null;
   lng: number | null;
+  locationInfo?: {
+    precision: "address" | "venue" | "area";
+    label: string;
+    sourceUrl: string;
+  };
   instagramSources?: { url: string; caption: string; addedAt: string }[];
 };
 export const statuses = [
@@ -28,6 +34,12 @@ export const statuses = [
   "보류",
 ];
 export const priorities = ["미정", "높음", "보통", "낮음"];
+export function locationLabel(p: Place) {
+  if (!hasCoordinates(p)) return "위치 미지정";
+  if (p.locationInfo?.precision === "address") return "주소 기준 위치";
+  if (p.locationInfo?.precision === "area") return "지역·경로 대표 위치";
+  return "위치 지정됨";
+}
 export function safeUrl(value: string) {
   try {
     const url = new URL(value);
@@ -36,8 +48,11 @@ export function safeUrl(value: string) {
     return "";
   }
 }
-export function hasCoordinates(p: Pick<Place, "lat" | "lng">): boolean {
+export function hasCoordinates(
+  p: Pick<Place, "lat" | "lng" | "kind">,
+): boolean {
   return (
+    p.kind !== "information" &&
     p.lat !== null &&
     p.lng !== null &&
     Number.isFinite(p.lat) &&
@@ -70,6 +85,7 @@ export function blankPlace(): Place {
   };
 }
 const aliases: Record<string, string[]> = {
+  kind: ["항목유형", "kind"],
   sourceId: ["장소ID", "ID"],
   name: ["장소·상호", "장소명", "상호명", "이름", "name"],
   region: ["권역", "지역", "region"],
@@ -127,10 +143,13 @@ export function parseRows(rows: Cell[][]): {
     }
     const p = blankPlace();
     for (const key of Object.keys(aliases)) {
-      if (key !== "lat" && key !== "lng")
+      if (key !== "lat" && key !== "lng" && key !== "kind")
         (p as unknown as Record<string, unknown>)[key] =
           get(key) || (p as unknown as Record<string, unknown>)[key];
     }
+    p.kind = ["information", "여행 정보"].includes(get("kind"))
+      ? "information"
+      : "place";
     p.lat = get("lat") ? Number(get("lat")) : null;
     p.lng = get("lng") ? Number(get("lng")) : null;
     if (!hasCoordinates(p)) {
@@ -146,19 +165,31 @@ export function parseRows(rows: Cell[][]): {
 }
 export function mergePlaces(current: Place[], incoming: Place[]) {
   const key = (p: Place) =>
-    `${p.name.trim().toLowerCase()}|${p.address.trim().toLowerCase()}|${p.region.trim()}`;
-  const seen = new Set(current.map(key));
+    `${p.kind ?? "place"}|${p.name.trim().toLowerCase()}|${p.address.trim().toLowerCase()}|${p.region.trim()}`;
+  const places = [...current];
+  const positions = new Map(places.map((p, index) => [key(p), index]));
   let duplicates = 0;
-  const added = incoming.filter((p) => {
+  let located = 0;
+  for (const p of incoming) {
     const k = key(p);
-    if (seen.has(k)) {
+    const index = positions.get(k);
+    if (index !== undefined) {
       duplicates++;
-      return false;
+      if (!hasCoordinates(places[index]) && hasCoordinates(p)) {
+        places[index] = {
+          ...places[index],
+          lat: p.lat,
+          lng: p.lng,
+          locationInfo: p.locationInfo,
+        };
+        located++;
+      }
+      continue;
     }
-    seen.add(k);
-    return true;
-  });
-  return { places: [...current, ...added], duplicates };
+    positions.set(k, places.length);
+    places.push(p);
+  }
+  return { places, duplicates, located };
 }
 export function csvExport(places: Place[]) {
   const fields = Object.keys(aliases) as (keyof Place)[];

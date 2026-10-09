@@ -10,5 +10,6 @@ out/
 *.xlsx
 01_instagram*
 .qa/
+.local-data/
 .agents/
 skills-lock.json

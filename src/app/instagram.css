@@ -83,11 +83,69 @@
   margin: 20px 0;
 }
 .instagram-mode button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
   flex: 1;
   padding: 10px;
   border-radius: 7px;
   font-size: 14px;
   color: #6a7990;
+}
+.instagram-candidate,
+.instagram-information {
+  border: 1px solid var(--line);
+  background: #fafbfe;
+  border-radius: 12px;
+  padding: 16px;
+  margin-bottom: 12px;
+}
+.instagram-candidate-choice {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  cursor: pointer;
+}
+.instagram-candidate-choice input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+  margin: 3px 0 0;
+  accent-color: var(--blue);
+}
+.instagram-candidate-choice strong,
+.instagram-candidate-choice small {
+  display: block;
+}
+.instagram-candidate-choice small {
+  margin-top: 6px;
+  color: #62728b;
+  line-height: 1.6;
+}
+.instagram-information p {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  line-height: 1.8;
+  font-size: 14px;
+}
+.instagram-information h3 {
+  font-size: 18px;
+  overflow-wrap: anywhere;
+}
+.instagram-modal summary {
+  cursor: pointer;
+  color: #536b94;
+  font-size: 13px;
+  margin: 12px 0;
+}
+.instagram-advanced {
+  border-top: 1px solid var(--line);
+  margin: 20px 0;
+  padding-top: 6px;
+}
+.instagram-advanced label {
+  margin-top: 14px;
 }
 .instagram-mode button.active {
   background: white;

@@ -1,10 +1,16 @@
 import { extractPublicCaption, normalizeInstagramUrl } from "./instagram";
+import {
+  analyzeInstagramCaption,
+  cleanCaption,
+  type InstagramAnalysis,
+} from "./instagram-analysis";
 
 export type InstagramPreview = {
   url: string;
   caption: string;
   status: "available" | "manual";
   message: string;
+  analysis: InstagramAnalysis;
 };
 export async function fetchInstagramPreview(
   input: string,
@@ -16,7 +22,8 @@ export async function fetchInstagramPreview(
     caption: "",
     status: "manual",
     message:
-      "Instagram에서 게시물 설명을 제공하지 않았습니다. 원본 게시물을 열어 설명을 붙여 넣거나 장소 정보를 직접 입력해 주세요.",
+      "이 릴스의 공개 설명을 읽을 수 없습니다. 링크를 확인 대기로 보관하거나 설명을 붙여 넣어 다시 분류할 수 있어요.",
+    analysis: analyzeInstagramCaption(""),
   };
   try {
     // Redirects to login pages or external destinations are deliberately not followed.
@@ -56,14 +63,15 @@ export async function fetchInstagramPreview(
     } finally {
       reader.releaseLock();
     }
-    const caption = extractPublicCaption(html);
+    const caption = cleanCaption(extractPublicCaption(html));
     return caption
       ? {
           url,
           caption,
           status: "available",
           message:
-            "공개 게시물의 미리보기 설명을 가져왔습니다. 일부만 제공될 수 있으므로 원문과 장소 정보를 확인해 주세요.",
+            "공개 설명을 읽어 분류했습니다. 영상 속 자막·음성은 분석하지 않으며, 설명이 일부만 제공될 수 있어요.",
+          analysis: analyzeInstagramCaption(caption),
         }
       : manual;
   } catch {

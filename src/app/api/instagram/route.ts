@@ -1,5 +1,5 @@
 import { fetchInstagramPreview } from "@/lib/instagram-fetch";
-import { normalizeInstagramUrl } from "@/lib/instagram";
+import { normalizeReelUrl } from "@/lib/instagram-analysis";
 
 export const runtime = "nodejs";
 const cache = new Map<
@@ -20,9 +20,9 @@ export async function POST(request: Request) {
   let url: string;
   try {
     const input = JSON.parse(body);
-    if (typeof input.url !== "string")
+    if (!input || typeof input.url !== "string")
       throw Error("Instagram URL을 입력해 주세요.");
-    url = normalizeInstagramUrl(input.url);
+    url = normalizeReelUrl(input.url);
   } catch (e) {
     return Response.json(
       { error: e instanceof Error ? e.message : "올바른 URL을 입력해 주세요." },

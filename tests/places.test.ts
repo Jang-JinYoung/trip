@@ -52,3 +52,34 @@ test("주소가 다른 지점은 보존하고 CSV 수식 실행을 방지한다"
   assert.equal(mergePlaces([], places).places.length, 2);
   assert.match(csvExport(places), /'=HYPERLINK/);
 });
+
+test("좌표를 보완해도 기존 메모·방문 상태·직접 지정한 위치는 보존한다", () => {
+  const { places } = parseRows([
+    ["장소명", "주소"],
+    ["A", "1"],
+    ["B", "2"],
+  ]);
+  places[0].note = "내 메모";
+  places[0].status = "꼭 가기";
+  places[1].lat = 22.1;
+  places[1].lng = 114.1;
+  const incoming = places.map((p) => ({
+    ...p,
+    id: crypto.randomUUID(),
+    note: "",
+    status: "방문 후보",
+    lat: 22.3,
+    lng: 114.2,
+  }));
+  const merged = mergePlaces(places, incoming);
+  assert.equal(merged.places.length, 2);
+  assert.equal(merged.duplicates, 2);
+  assert.equal(merged.located, 1);
+  assert.equal(merged.places[0].note, "내 메모");
+  assert.equal(merged.places[0].status, "꼭 가기");
+  assert.equal(merged.places[0].id, places[0].id);
+  assert.equal(merged.places[0].lat, 22.3);
+  assert.equal(merged.places[1].lat, 22.1);
+  assert.equal(places[0].lat, null);
+  assert.equal(mergePlaces(merged.places, incoming).located, 0);
+});

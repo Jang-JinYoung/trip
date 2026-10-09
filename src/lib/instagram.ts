@@ -130,6 +130,37 @@ function decodeEntities(text: string): string {
 }
 /** Only reads plain public metadata; never executes or renders external HTML. */
 export function extractPublicCaption(html: string): string {
+  for (const script of html.matchAll(
+    /<script\b[^>]*type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi,
+  )) {
+    try {
+      const parsed = JSON.parse(script[1]);
+      const nodes = Array.isArray(parsed)
+        ? parsed
+        : [
+            parsed,
+            ...(Array.isArray(parsed?.["@graph"]) ? parsed["@graph"] : []),
+          ];
+      for (const node of nodes) {
+        if (
+          !node ||
+          !["VideoObject", "SocialMediaPosting", "Article"].includes(
+            node["@type"],
+          )
+        )
+          continue;
+        const caption = node.articleBody || node.caption || node.description;
+        if (
+          typeof caption === "string" &&
+          caption.trim() &&
+          !/log in to see|sign up to see|로그인하여/i.test(caption)
+        )
+          return decodeEntities(caption.trim()).slice(0, 12000);
+      }
+    } catch {
+      /* Invalid external metadata must not prevent the OG fallback. */
+    }
+  }
   const meta = new Map<string, string>();
   for (const tag of html.match(/<meta\s[^>]*>/gi) ?? []) {
     const attributes = new Map<string, string>();

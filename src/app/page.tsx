@@ -1,4 +1,5 @@
 import Workspace from "@/components/workspace";
-export default function Page() {
-  return <Workspace />;
+import { getLocalPlaces } from "@/lib/local-places";
+export default async function Page() {
+  return <Workspace initialPlaces={await getLocalPlaces()} />;
 }
