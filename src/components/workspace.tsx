@@ -1,6 +1,6 @@
 "use client";
 import dynamic from "next/dynamic";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   MapPin,
   Upload,
@@ -11,14 +11,12 @@ import {
   BookOpen,
   Check,
   X,
-  ExternalLink,
   Download,
   Cloud,
   SlidersHorizontal,
   List,
   Map as MapIcon,
   LocateFixed,
-  Trash2,
   Coffee,
   Utensils,
   ShoppingBag,
@@ -30,7 +28,6 @@ import {
 } from "lucide-react";
 import InstagramImport from "./instagram-import";
 import MyMapsExport from "./my-maps-export";
-import { googleMapsUrl } from "@/lib/google-maps";
 import type { User } from "@supabase/supabase-js";
 import {
   blankPlace,
@@ -90,7 +87,11 @@ export default function Workspace({
     [region, setRegion] = useState("전체 지역"),
     [view, setView] = useState("all"),
     [selected, setSelected] = useState<string | null>(null),
+    [mapFocus, setMapFocus] = useState<{ id: string; zoom: boolean } | null>(
+      null,
+    ),
     [draft, setDraft] = useState<Place | null>(null),
+    [creatingPlace, setCreatingPlace] = useState(false),
     [toast, setToast] = useState(""),
     [busy, setBusy] = useState(false),
     [picking, setPicking] = useState(false),
@@ -117,7 +118,7 @@ export default function Workspace({
           "button:not(:disabled), a[href], input, select, textarea",
         ),
       ).filter((el) => el.getClientRects().length > 0);
-    items()[0]?.focus();
+    items()[0]?.focus({ preventScroll: true });
     const onKey = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
         if (instagramOpen) {
@@ -128,7 +129,7 @@ export default function Workspace({
         setDraft(null);
         setPicking(false);
       }
-      if (event.key !== "Tab") return;
+      if (event.key !== "Tab" || (!authOpen && !instagramOpen)) return;
       const controls = items(),
         first = controls[0],
         last = controls[controls.length - 1];
@@ -143,7 +144,7 @@ export default function Workspace({
     document.addEventListener("keydown", onKey);
     return () => {
       document.removeEventListener("keydown", onKey);
-      previous?.focus();
+      previous?.focus({ preventScroll: true });
     };
   }, [dialogOpen, picking, authOpen, instagramOpen]);
   useEffect(() => {
@@ -160,32 +161,50 @@ export default function Workspace({
     const t = setTimeout(() => setToast(""), 6000);
     return () => clearTimeout(t);
   }, [toast]);
-  const filtered = places.filter(
-    (p) =>
-      (category === "전체" || p.category === category) &&
-      (region === "전체 지역" || p.region === region) &&
-      (contentKind === "all" || (p.kind ?? "place") === contentKind) &&
-      (view === "all" ||
-        (p.kind !== "information" &&
-          ((view === "saved" && p.status === "꼭 가기") ||
-            (view === "visited" && p.status === "방문 완료") ||
-            (view === "unlocated" && !hasCoordinates(p))))) &&
-      `${p.name} ${p.region} ${p.address} ${p.description} ${p.note}`
-        .toLowerCase()
-        .includes(query.toLowerCase()),
+  const filtered = useMemo(
+    () =>
+      places.filter(
+        (p) =>
+          (category === "전체" || p.category === category) &&
+          (region === "전체 지역" || p.region === region) &&
+          (contentKind === "all" || (p.kind ?? "place") === contentKind) &&
+          (view === "all" ||
+            (p.kind !== "information" &&
+              ((view === "saved" && p.status === "꼭 가기") ||
+                (view === "visited" && p.status === "방문 완료") ||
+                (view === "unlocated" && !hasCoordinates(p))))) &&
+          `${p.name} ${p.region} ${p.address} ${p.description} ${p.note}`
+            .toLowerCase()
+            .includes(query.toLowerCase()),
+      ),
+    [places, category, region, contentKind, view, query],
   );
   const categories = [
     "전체",
     ...Array.from(new Set(places.map((p) => p.category))),
   ];
   const located = places.filter(hasCoordinates).length;
-  function openPlace(p: Place) {
+  const openPlace = useCallback((p: Place, focusMap = true, creating = false) => {
     setSelected(p.id);
+    setMapFocus({ id: p.id, zoom: focusMap });
     setDraft({ ...p });
+    setCreatingPlace(creating);
     setResults([]);
     setGeoQuery(p.address || p.name);
     setPicking(false);
-  }
+  }, []);
+  const selectMapPlace = useCallback(
+    (id: string) => {
+      const place = places.find((p) => p.id === id);
+      if (place) openPlace(place, false);
+    },
+    [places, openPlace],
+  );
+  const pickMapLocation = useCallback((lat: number, lng: number) => {
+    setDraft((p) => (p ? { ...p, lat, lng, locationInfo: undefined } : p));
+    setPicking(false);
+    setToast("위치를 선택했습니다. 장소 저장을 눌러 확정해 주세요.");
+  }, []);
   function update<K extends keyof Place>(key: K, value: Place[K]) {
     setDraft((p) =>
       p
@@ -573,7 +592,7 @@ export default function Workspace({
               </select>
               <button
                 className="button small"
-                onClick={() => openPlace(blankPlace())}
+                onClick={() => openPlace(blankPlace(), true, true)}
               >
                 <Plus size={16} />
                 장소 추가
@@ -678,9 +697,7 @@ export default function Workspace({
                       </span>
                       <strong>{p.name}</strong>
                       <span className="place-description">
-                        {p.description ||
-                          p.address ||
-                          "장소의 정보를 추가해 보세요."}
+                        {p.address || "주소 미등록"}
                       </span>
                       <span className="place-tags">
                         <span
@@ -722,20 +739,10 @@ export default function Workspace({
               <PlaceMap
                 places={filtered}
                 selected={selected}
-                onSelect={(id) => {
-                  const p = places.find((p) => p.id === id);
-                  if (p) openPlace(p);
-                }}
+                focus={mapFocus}
+                onSelect={selectMapPlace}
                 picking={picking}
-                onPick={(lat, lng) => {
-                  setDraft((p) =>
-                    p ? { ...p, lat, lng, locationInfo: undefined } : p,
-                  );
-                  setPicking(false);
-                  setToast(
-                    "위치를 선택했습니다. 장소 저장을 눌러 확정해 주세요.",
-                  );
-                }}
+                onPick={pickMapLocation}
               />
               {!located && !picking && (
                 <div className="map-hint">
@@ -762,31 +769,22 @@ export default function Workspace({
       {draft && (
         <div
           className={"drawer-backdrop " + (picking ? "picking-backdrop" : "")}
-          onClick={() => {
-            if (!picking) {
-              setDraft(null);
-              setSelected(null);
-            }
-          }}
         >
           <section
             className="drawer"
             role="dialog"
-            aria-modal={!picking}
-            aria-label={
-              draft.kind === "information" ? "여행 정보 편집" : "장소 편집"
-            }
+            aria-modal={false}
+            aria-labelledby="place-panel-title"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="drawer-header">
               <div>
                 <span className="eyebrow">PLACE DETAILS</span>
-                <h2>
-                  {draft.kind === "information"
-                    ? "여행 정보 정리하기"
-                    : places.some((p) => p.id === draft.id)
-                      ? "장소 정리하기"
-                      : "새로운 장소"}
+                <h2 id="place-panel-title">
+                  {draft.name ||
+                    (draft.kind === "information"
+                      ? "새로운 여행 정보"
+                      : "새로운 장소")}
                 </h2>
               </div>
               <button
@@ -801,342 +799,291 @@ export default function Workspace({
               </button>
             </div>
             <div className="drawer-content">
-              <label>
-                {draft.kind === "information" ? "정보 제목" : "장소명"}
-                <input
-                  value={draft.name}
-                  onChange={(e) => update("name", e.target.value)}
-                  placeholder="장소 이름"
-                />
-              </label>
-              <div className="form-row">
-                <label>
-                  분류
-                  <input
-                    value={draft.category}
-                    onChange={(e) => update("category", e.target.value)}
-                  />
-                </label>
-                <label>
-                  지역
-                  <input
-                    value={draft.region}
-                    onChange={(e) => update("region", e.target.value)}
-                  />
-                </label>
-              </div>
-              {draft.kind !== "information" && (
-                <label>
-                  주소
-                  <input
-                    value={draft.address}
-                    onChange={(e) => update("address", e.target.value)}
-                  />
-                </label>
-              )}
-              <label>
-                {draft.kind === "information" ? "정보 내용" : "장소 소개"}
-                <textarea
-                  rows={3}
-                  value={draft.description}
-                  onChange={(e) => update("description", e.target.value)}
-                />
-              </label>
-              {draft.kind !== "information" && (
+              {creatingPlace ? (
                 <>
-                  <div className="form-row">
-                    <label>
-                      방문상태
-                      <select
-                        value={draft.status}
-                        onChange={(e) => update("status", e.target.value)}
-                      >
-                        {Array.from(new Set([...statuses, draft.status])).map(
-                          (s) => (
-                            <option key={s}>{s}</option>
-                          ),
-                        )}
-                      </select>
-                    </label>
-                    <label>
-                      우선순위
-                      <select
-                        value={draft.priority}
-                        onChange={(e) => update("priority", e.target.value)}
-                      >
-                        {Array.from(
-                          new Set([...priorities, draft.priority]),
-                        ).map((s) => (
-                          <option key={s}>{s}</option>
-                        ))}
-                      </select>
-                    </label>
-                  </div>
                   <label>
-                    희망일
+                    {draft.kind === "information" ? "정보 제목" : "장소명"}
                     <input
-                      value={draft.day}
-                      placeholder="예: 11월 14일 / 둘째 날"
-                      onChange={(e) => update("day", e.target.value)}
+                      value={draft.name}
+                      onChange={(e) => update("name", e.target.value)}
+                      placeholder="장소 이름"
                     />
                   </label>
-                </>
-              )}
-              <label>
-                나의 메모
-                <textarea
-                  rows={3}
-                  placeholder="먹고 싶은 메뉴, 예약 정보, 함께 갈 사람…"
-                  value={draft.note}
-                  onChange={(e) => update("note", e.target.value)}
-                />
-              </label>
-              {(draft.price || draft.hours || draft.caution) && (
-                <div className="source-info">
-                  <h3>엑셀에 담긴 정보</h3>
-                  {draft.price && (
-                    <p>
-                      <b>가격</b>
-                      {draft.price}
-                    </p>
+                  <div className="form-row">
+                    <label>
+                      분류
+                      <input
+                        value={draft.category}
+                        onChange={(e) => update("category", e.target.value)}
+                      />
+                    </label>
+                    <label>
+                      지역
+                      <input
+                        value={draft.region}
+                        onChange={(e) => update("region", e.target.value)}
+                      />
+                    </label>
+                  </div>
+                  {draft.kind !== "information" && (
+                    <label>
+                      주소
+                      <input
+                        value={draft.address}
+                        onChange={(e) => update("address", e.target.value)}
+                      />
+                    </label>
                   )}
-                  {draft.hours && (
-                    <p>
-                      <b>시간</b>
-                      {draft.hours}
-                    </p>
+                  <label>
+                    {draft.kind === "information" ? "정보 내용" : "장소 소개"}
+                    <textarea
+                      rows={3}
+                      value={draft.description}
+                      onChange={(e) => update("description", e.target.value)}
+                    />
+                  </label>
+                  {draft.kind !== "information" && (
+                    <>
+                      <div className="form-row">
+                        <label>
+                          방문상태
+                          <select
+                            value={draft.status}
+                            onChange={(e) => update("status", e.target.value)}
+                          >
+                            {Array.from(
+                              new Set([...statuses, draft.status]),
+                            ).map((s) => (
+                              <option key={s}>{s}</option>
+                            ))}
+                          </select>
+                        </label>
+                        <label>
+                          우선순위
+                          <select
+                            value={draft.priority}
+                            onChange={(e) => update("priority", e.target.value)}
+                          >
+                            {Array.from(
+                              new Set([...priorities, draft.priority]),
+                            ).map((s) => (
+                              <option key={s}>{s}</option>
+                            ))}
+                          </select>
+                        </label>
+                      </div>
+                      <label>
+                        희망일
+                        <input
+                          value={draft.day}
+                          placeholder="예: 11월 14일 / 둘째 날"
+                          onChange={(e) => update("day", e.target.value)}
+                        />
+                      </label>
+                    </>
                   )}
-                  {draft.caution && (
-                    <p className="caution">
-                      <AlertCircle size={16} />
-                      {draft.caution}
-                    </p>
-                  )}
-                  <small>원문 기준 정보입니다. 방문 전에 확인해 주세요.</small>
-                </div>
-              )}
-              {draft.kind !== "information" && (
-                <div className="location-section">
-                  <h3>
-                    <MapPin size={18} />
-                    지도에 위치 지정
-                  </h3>
-                  {hasCoordinates(draft) && draft.locationInfo && (
+                  <label>
+                    나의 메모
+                    <textarea
+                      rows={3}
+                      placeholder="먹고 싶은 메뉴, 예약 정보, 함께 갈 사람…"
+                      value={draft.note}
+                      onChange={(e) => update("note", e.target.value)}
+                    />
+                  </label>
+                  {(draft.price || draft.hours || draft.caution) && (
                     <div className="source-info">
-                      <strong>{locationLabel(draft)}</strong>
-                      <p>{draft.locationInfo.label}</p>
-                      {draft.locationInfo.precision === "address" && (
-                        <small>
-                          엑셀 주소에 해당하는 건물 위치입니다. 매장 입구와 현재
-                          영업 여부는 별도 확인해 주세요.
-                        </small>
+                      <h3>엑셀에 담긴 정보</h3>
+                      {draft.price && (
+                        <p>
+                          <b>가격</b>
+                          {draft.price}
+                        </p>
                       )}
-                      {draft.locationInfo.precision === "area" && (
-                        <small>
-                          넓은 지역이나 경로의 대표 지점입니다. 출발점·입구와
-                          다를 수 있습니다.
-                        </small>
+                      {draft.hours && (
+                        <p>
+                          <b>시간</b>
+                          {draft.hours}
+                        </p>
                       )}
-                      {safeUrl(draft.locationInfo.sourceUrl) && (
-                        <a
-                          href={safeUrl(draft.locationInfo.sourceUrl)}
-                          target="_blank"
-                          rel="noopener noreferrer"
+                      {draft.caution && (
+                        <p className="caution">
+                          <AlertCircle size={16} />
+                          {draft.caution}
+                        </p>
+                      )}
+                      <small>
+                        원문 기준 정보입니다. 방문 전에 확인해 주세요.
+                      </small>
+                    </div>
+                  )}
+                  {draft.kind !== "information" && (
+                    <div className="location-section">
+                      <h3>
+                        <MapPin size={18} />
+                        지도에 위치 지정
+                      </h3>
+                      {hasCoordinates(draft) && draft.locationInfo && (
+                        <div className="source-info">
+                          <strong>{locationLabel(draft)}</strong>
+                          <p>{draft.locationInfo.label}</p>
+                          {draft.locationInfo.precision === "address" && (
+                            <small>
+                              엑셀 주소에 해당하는 건물 위치입니다. 매장 입구와
+                              현재 영업 여부는 별도 확인해 주세요.
+                            </small>
+                          )}
+                          {draft.locationInfo.precision === "area" && (
+                            <small>
+                              넓은 지역이나 경로의 대표 지점입니다.
+                              출발점·입구와 다를 수 있습니다.
+                            </small>
+                          )}
+                          {safeUrl(draft.locationInfo.sourceUrl) && (
+                            <a
+                              href={safeUrl(draft.locationInfo.sourceUrl)}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                            >
+                              좌표 출처 확인
+                            </a>
+                          )}
+                        </div>
+                      )}
+                      <div className="geo-search">
+                        <input
+                          aria-label="주소 검색어"
+                          value={geoQuery}
+                          onChange={(e) => setGeoQuery(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") void geocode();
+                          }}
+                          placeholder="영문 장소명 또는 주소"
+                        />
+                        <button
+                          className="button"
+                          disabled={geoBusy}
+                          onClick={() => void geocode()}
                         >
-                          좌표 출처 확인
-                        </a>
+                          {geoBusy ? (
+                            <LoaderCircle className="spin" size={16} />
+                          ) : (
+                            <Search size={16} />
+                          )}
+                        </button>
+                      </div>
+                      <div className="geo-results">
+                        {results.map((r, i) => (
+                          <button
+                            key={i}
+                            onClick={() => {
+                              update("lat", Number(r.lat));
+                              update("lng", Number(r.lon));
+                              setResults([]);
+                              setToast(
+                                "검색 위치를 선택했습니다. 저장하면 지도에 표시됩니다.",
+                              );
+                            }}
+                          >
+                            <MapPin size={16} />
+                            {r.display_name}
+                          </button>
+                        ))}
+                      </div>
+                      <small className="geo-credit">
+                        주소 검색: © OpenStreetMap 기여자 · 후보 주소를 확인하고
+                        선택하세요.
+                      </small>
+                      <div className="form-row">
+                        <label>
+                          위도
+                          <input
+                            type="number"
+                            step="any"
+                            min="-90"
+                            max="90"
+                            value={draft.lat ?? ""}
+                            onChange={(e) =>
+                              update(
+                                "lat",
+                                e.target.value === ""
+                                  ? null
+                                  : Number(e.target.value),
+                              )
+                            }
+                          />
+                        </label>
+                        <label>
+                          경도
+                          <input
+                            type="number"
+                            step="any"
+                            min="-180"
+                            max="180"
+                            value={draft.lng ?? ""}
+                            onChange={(e) =>
+                              update(
+                                "lng",
+                                e.target.value === ""
+                                  ? null
+                                  : Number(e.target.value),
+                              )
+                            }
+                          />
+                        </label>
+                      </div>
+                      <button
+                        className="button full"
+                        onClick={() => {
+                          setPicking(!picking);
+                          setMobileMap(true);
+                        }}
+                      >
+                        <LocateFixed size={16} />
+                        {picking ? "위치 선택 취소" : "지도에서 직접 지정"}
+                      </button>
+                      {hasCoordinates(draft) && (
+                        <button
+                          className="text-button"
+                          onClick={() => {
+                            update("lat", null);
+                            update("lng", null);
+                          }}
+                        >
+                          저장된 좌표 지우기
+                        </button>
                       )}
                     </div>
                   )}
-                  <div className="geo-search">
-                    <input
-                      aria-label="주소 검색어"
-                      value={geoQuery}
-                      onChange={(e) => setGeoQuery(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter") void geocode();
-                      }}
-                      placeholder="영문 장소명 또는 주소"
-                    />
-                    <button
-                      className="button"
-                      disabled={geoBusy}
-                      onClick={() => void geocode()}
-                    >
-                      {geoBusy ? (
-                        <LoaderCircle className="spin" size={16} />
-                      ) : (
-                        <Search size={16} />
-                      )}
-                    </button>
+                </>
+              ) : (
+                <dl className="place-summary">
+                  <div>
+                    <dt>지역</dt>
+                    <dd>{draft.region || "지역 미등록"}</dd>
                   </div>
-                  <div className="geo-results">
-                    {results.map((r, i) => (
-                      <button
-                        key={i}
-                        onClick={() => {
-                          update("lat", Number(r.lat));
-                          update("lng", Number(r.lon));
-                          setResults([]);
-                          setToast(
-                            "검색 위치를 선택했습니다. 저장하면 지도에 표시됩니다.",
-                          );
-                        }}
-                      >
-                        <MapPin size={16} />
-                        {r.display_name}
-                      </button>
-                    ))}
+                  <div>
+                    <dt>주소</dt>
+                    <dd>{draft.address || "주소 미등록"}</dd>
                   </div>
-                  <small className="geo-credit">
-                    주소 검색: © OpenStreetMap 기여자 · 후보 주소를 확인하고
-                    선택하세요.
-                  </small>
-                  <div className="form-row">
-                    <label>
-                      위도
-                      <input
-                        type="number"
-                        step="any"
-                        min="-90"
-                        max="90"
-                        value={draft.lat ?? ""}
-                        onChange={(e) =>
-                          update(
-                            "lat",
-                            e.target.value === ""
-                              ? null
-                              : Number(e.target.value),
-                          )
-                        }
-                      />
-                    </label>
-                    <label>
-                      경도
-                      <input
-                        type="number"
-                        step="any"
-                        min="-180"
-                        max="180"
-                        value={draft.lng ?? ""}
-                        onChange={(e) =>
-                          update(
-                            "lng",
-                            e.target.value === ""
-                              ? null
-                              : Number(e.target.value),
-                          )
-                        }
-                      />
-                    </label>
-                  </div>
-                  <button
-                    className="button full"
-                    onClick={() => {
-                      setPicking(!picking);
-                      setMobileMap(true);
-                    }}
-                  >
-                    <LocateFixed size={16} />
-                    {picking ? "위치 선택 취소" : "지도에서 직접 지정"}
-                  </button>
-                  {hasCoordinates(draft) && (
-                    <button
-                      className="text-button"
-                      onClick={() => {
-                        update("lat", null);
-                        update("lng", null);
-                      }}
-                    >
-                      저장된 좌표 지우기
-                    </button>
-                  )}
-                </div>
+                </dl>
               )}
-              <div className="source-links">
-                {draft.kind !== "information" && (
-                  <a
-                    className="button"
-                    href={googleMapsUrl(draft)}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                  >
-                    Google 지도에서 열기
-                    <ExternalLink size={14} />
-                  </a>
-                )}
-                {safeUrl(draft.sourceUrl) && (
-                  <a
-                    className="button"
-                    href={safeUrl(draft.sourceUrl)}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                  >
-                    원본 게시물
-                    <ExternalLink size={14} />
-                  </a>
-                )}
-              </div>
-              <div className="instagram-sources">
-                {places.some((p) => p.id === draft.id) && (
-                  <button
-                    className="button full"
-                    onClick={() => setInstagramOpen(true)}
-                  >
-                    <Instagram size={16} />
-                    Instagram 정보 추가
-                  </button>
-                )}
-                {(draft.instagramSources ?? []).map((source) => (
-                  <details key={source.url}>
-                    <summary>Instagram 게시물 정보</summary>
-                    <a
-                      href={safeUrl(source.url) || undefined}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                    >
-                      원본 게시물 열기 <ExternalLink size={13} />
-                    </a>
-                    <p>
-                      {source.caption ||
-                        "설명 없이 링크만 저장된 게시물입니다."}
-                    </p>
-                  </details>
-                ))}
-              </div>
             </div>
-            <div className="drawer-footer">
-              <button
-                className="icon-button danger"
-                aria-label="장소 삭제"
-                onClick={() => {
-                  if (window.confirm("이 장소를 삭제할까요?")) {
-                    setPlaces((ps) => ps.filter((p) => p.id !== draft.id));
-                    setDraft(null);
-                    setPicking(false);
-                  }
-                }}
-              >
-                <Trash2 size={18} />
-              </button>
-              <button className="button primary" onClick={save}>
-                <Check size={17} />
-                장소 저장
-              </button>
-            </div>
+            {creatingPlace && (
+              <div className="drawer-footer">
+                <button className="button primary" onClick={save}>
+                  <Check size={17} />
+                  장소 저장
+                </button>
+              </div>
+            )}
           </section>
         </div>
       )}
       {instagramOpen && (
         <InstagramImport
-          places={
-            draft && places.some((p) => p.id === draft.id)
-              ? places.map((p) => (p.id === draft.id ? draft : p))
-              : places
-          }
-          initialTarget={
-            draft && places.some((p) => p.id === draft.id) ? draft.id : null
-          }
+          places={places}
+          initialTarget={null}
           onClose={() => setInstagramOpen(false)}
           onApply={(items) => {
             setPlaces((current) => {

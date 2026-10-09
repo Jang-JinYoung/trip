@@ -8,6 +8,7 @@ out/
 *.xlsx
 # Private Instagram source files stay local.
 01_instagram*
+hongkong_36_verified_addresses.csv
 .qa/
 .local-data/
 .vercel/

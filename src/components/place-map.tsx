@@ -1,9 +1,13 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useEffect, useRef, useState } from "react";
+import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { importLibrary, setOptions } from "@googlemaps/js-api-loader";
 import { hasCoordinates, locationLabel, type Place } from "@/lib/places";
+import {
+  createGoogleMapMarkers,
+  type MapPoint,
+} from "@/lib/google-map-markers";
 import {
   requestMapPermit,
   parseMapPermit,
@@ -14,37 +18,66 @@ const OpenStreetMap = dynamic(() => import("./openstreet-map"), { ssr: false });
 const apiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY?.trim();
 let configured = false;
 
+const mapErrors = {
+  auth: "Google이 지도 사용을 승인하지 않았습니다. API 키의 허용 사이트, Maps JavaScript API 활성화, 결제 연결을 확인해 주세요. (MAP_AUTH)",
+  timeout:
+    "Google 지도 연결 시간이 초과되었습니다. 네트워크 연결이나 브라우저의 차단 설정을 확인한 뒤 새로고침해 주세요. (MAP_TIMEOUT)",
+  script:
+    "Google 지도 스크립트를 불러오지 못했습니다. 네트워크 연결이나 브라우저의 차단 설정을 확인해 주세요. (MAP_SCRIPT)",
+  initialize:
+    "Google 지도 화면을 초기화하지 못했습니다. 새로고침 후에도 계속되면 MAP_INIT 오류를 알려 주세요.",
+};
+
 type Props = {
   places: Place[];
   selected: string | null;
+  focus: { id: string; zoom: boolean } | null;
   onSelect: (id: string) => void;
   picking: boolean;
   onPick: (lat: number, lng: number) => void;
 };
 
-function GoogleMap({ places, selected, onSelect, picking, onPick }: Props) {
+function GoogleMap({
+  places,
+  selected,
+  focus,
+  onSelect,
+  picking,
+  onPick,
+}: Props) {
   const container = useRef<HTMLDivElement>(null);
   const [map, setMap] = useState<google.maps.Map | null>(null);
-  const [error, setError] = useState(false);
+  const [error, setError] = useState<keyof typeof mapErrors | null>(null);
   const [fallback, setFallback] = useState(false);
   const [fallbackReason, setFallbackReason] = useState("");
   const permitRequest = useRef<Promise<MapPermit> | null>(null);
+  const markers = useRef<ReturnType<typeof createGoogleMapMarkers> | null>(
+    null,
+  );
+  const cameraPositions = useRef<string | null>(null);
   const handlers = useRef({ onSelect, onPick, picking });
   useEffect(() => {
     handlers.current = { onSelect, onPick, picking };
   }, [onSelect, onPick, picking]);
 
   useEffect(() => {
+    if (fallback) return;
     let cancelled = false;
+    let failed = false;
+    let librariesLoaded = false;
+    let timeout: number | undefined;
     let instance: google.maps.Map | undefined;
     const host = container.current;
     const globals = window as Window & { gm_authFailure?: () => void };
     const previousAuthFailure = globals.gm_authFailure;
-    const authFailure = () => {
-      if (!cancelled) setError(true);
+    const fail = (reason: keyof typeof mapErrors) => {
+      if (cancelled || failed) return;
+      failed = true;
+      window.clearTimeout(timeout);
+      setError(reason);
     };
+    const authFailure = () => fail("auth");
     globals.gm_authFailure = authFailure;
-    const timeout = window.setTimeout(authFailure, 20000);
     async function initialize() {
       try {
         // One reservation per mounted map, including React Strict Mode replay.
@@ -60,6 +93,7 @@ function GoogleMap({ places, selected, onSelect, picking, onPick }: Props) {
           setFallback(true);
           return;
         }
+        timeout = window.setTimeout(() => fail("timeout"), 20000);
         if (!configured) {
           setOptions({ key: apiKey, v: "quarterly", language: "ko" });
           configured = true;
@@ -68,7 +102,8 @@ function GoogleMap({ places, selected, onSelect, picking, onPick }: Props) {
           importLibrary("maps"),
           importLibrary("marker"),
         ]);
-        if (cancelled || !host) return;
+        librariesLoaded = true;
+        if (cancelled || failed || !host) return;
         if (!parseMapPermit(permit).allowed) {
           setFallbackReason(
             "지도 연결 시간이 초과되어 OpenStreetMap으로 표시합니다.",
@@ -84,7 +119,7 @@ function GoogleMap({ places, selected, onSelect, picking, onPick }: Props) {
           streetViewControl: false,
           fullscreenControl: false,
           clickableIcons: false,
-          gestureHandling: "cooperative",
+          gestureHandling: "greedy",
         });
         instance.addListener("click", (event: google.maps.MapMouseEvent) => {
           if (handlers.current.picking && event.latLng)
@@ -92,7 +127,7 @@ function GoogleMap({ places, selected, onSelect, picking, onPick }: Props) {
         });
         setMap(instance);
       } catch {
-        if (!cancelled) setError(true);
+        fail(librariesLoaded ? "initialize" : "script");
       } finally {
         window.clearTimeout(timeout);
       }
@@ -105,57 +140,47 @@ function GoogleMap({ places, selected, onSelect, picking, onPick }: Props) {
         globals.gm_authFailure = previousAuthFailure;
       if (instance) google.maps.event.clearInstanceListeners(instance);
     };
-  }, []);
+  }, [fallback]);
 
-  const markerData = JSON.stringify(
-    places.filter(hasCoordinates).map((p) => ({
-      id: p.id,
-      lat: p.lat!,
-      lng: p.lng!,
-      title: `${p.name} · ${locationLabel(p)}`,
-    })),
+  useEffect(() => {
+    if (!map || fallback || error) return;
+    const controller = createGoogleMapMarkers(map, (id) =>
+      handlers.current.onSelect(id),
+    );
+    markers.current = controller;
+    return () => {
+      controller.dispose();
+      markers.current = null;
+    };
+  }, [map, fallback, error]);
+
+  const markerData = useMemo(
+    () =>
+      JSON.stringify(
+        places.filter(hasCoordinates).map((p) => ({
+          id: p.id,
+          lat: p.lat!,
+          lng: p.lng!,
+          title: `${p.name} · ${locationLabel(p)}`,
+        })),
+      ),
+    [places],
   );
   useEffect(() => {
-    if (!map || fallback) return;
-    const points = JSON.parse(markerData) as {
-      id: string;
-      lat: number;
-      lng: number;
-      title: string;
-    }[];
-    const markers = points.map((place) => {
-      const active = place.id === selected;
-      const pin = new google.maps.marker.PinElement({
-        background: active ? "#e7a64b" : "#4565ef",
-        borderColor: "#ffffff",
-        glyphColor: "#ffffff",
-        scale: active ? 1.2 : 1,
-      });
-      const marker = new google.maps.marker.AdvancedMarkerElement({
-        map,
-        position: { lat: place.lat!, lng: place.lng! },
-        title: place.title,
-        zIndex: active ? 1000 : undefined,
-      });
-      marker.append(pin);
-      marker.addListener("click", () => handlers.current.onSelect(place.id));
-      return marker;
-    });
-    return () => {
-      markers.forEach((marker) => {
-        google.maps.event.clearInstanceListeners(marker);
-        marker.map = null;
-      });
-    };
-  }, [map, markerData, selected, fallback]);
+    markers.current?.update(JSON.parse(markerData) as MapPoint[], selected);
+  }, [map, markerData, selected, fallback, error]);
 
-  // Only move the camera when the visible coordinates or selection change.
-  const positions = JSON.stringify(
-    places.filter(hasCoordinates).map((p) => ({
-      id: p.id,
-      lat: p.lat!,
-      lng: p.lng!,
-    })),
+  // Both entry points center the place; marker clicks preserve the current zoom.
+  const positions = useMemo(
+    () =>
+      JSON.stringify(
+        places.filter(hasCoordinates).map((p) => ({
+          id: p.id,
+          lat: p.lat!,
+          lng: p.lng!,
+        })),
+      ),
+    [places],
   );
   useEffect(() => {
     if (!map || fallback) return;
@@ -167,11 +192,14 @@ function GoogleMap({ places, selected, onSelect, picking, onPick }: Props) {
     let idle: google.maps.MapsEventListener | undefined;
     const moveCamera = () => {
       idle?.remove();
-      const active = points.find((p) => p.id === selected);
-      if (active || points.length === 1) {
-        map.panTo(active || points[0]);
-        map.setZoom(16);
-      } else if (points.length) {
+      const active = points.find((p) => p.id === focus?.id);
+      const changed = cameraPositions.current !== positions;
+      cameraPositions.current = positions;
+      if (active || (changed && points.length === 1)) {
+        map.setCenter(active || points[0]);
+        // Focusing a marker should not zoom out from an existing close-up.
+        if (focus?.zoom !== false && (map.getZoom() ?? 0) < 16) map.setZoom(16);
+      } else if (changed && points.length) {
         const bounds = new google.maps.LatLngBounds();
         points.forEach((point) => bounds.extend(point));
         map.fitBounds(bounds, 60);
@@ -194,7 +222,7 @@ function GoogleMap({ places, selected, onSelect, picking, onPick }: Props) {
       observer.disconnect();
       idle?.remove();
     };
-  }, [map, positions, selected, fallback]);
+  }, [map, positions, focus, fallback]);
 
   useEffect(() => {
     map?.setOptions({ draggableCursor: picking ? "crosshair" : null });
@@ -203,7 +231,9 @@ function GoogleMap({ places, selected, onSelect, picking, onPick }: Props) {
   if (fallback)
     return (
       <div className="map-canvas">
-        <OpenStreetMap {...{ places, selected, onSelect, picking, onPick }} />
+        <OpenStreetMap
+          {...{ places, selected, focus, onSelect, picking, onPick }}
+        />
         {fallbackReason && (
           <div className="map-provider-note" role="status">
             {fallbackReason}
@@ -225,10 +255,13 @@ function GoogleMap({ places, selected, onSelect, picking, onPick }: Props) {
       )}
       {error && (
         <div className="map-error" role="alert">
-          <p>
-            Google 지도를 불러오지 못했습니다. 연결 상태와 지도 설정을 확인해
-            주세요.
-          </p>
+          <p>{mapErrors[error]}</p>
+          {error === "auth" && (
+            <p>
+              정확한 원인은 F12 → Console의 Google Maps JavaScript API error
+              항목에서 확인할 수 있습니다.
+            </p>
+          )}
           <button className="button" onClick={() => setFallback(true)}>
             OpenStreetMap으로 보기
           </button>
@@ -241,7 +274,7 @@ function GoogleMap({ places, selected, onSelect, picking, onPick }: Props) {
   );
 }
 
-export default function PlaceMap(props: Props) {
+function PlaceMap(props: Props) {
   if (apiKey) return <GoogleMap {...props} />;
   return (
     <div className="map-canvas">
@@ -252,3 +285,5 @@ export default function PlaceMap(props: Props) {
     </div>
   );
 }
+
+export default memo(PlaceMap);

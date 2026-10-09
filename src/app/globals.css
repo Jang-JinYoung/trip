@@ -728,8 +728,10 @@ p {
 .drawer-backdrop {
   background: transparent;
   backdrop-filter: none;
+  pointer-events: none;
 }
 .drawer {
+  pointer-events: auto;
   width: 450px;
   background: #fff;
   display: flex;
@@ -748,6 +750,30 @@ p {
   font-size: 22px;
   margin: 7px 0 0;
   letter-spacing: -0.8px;
+  overflow-wrap: anywhere;
+}
+.drawer-header > div {
+  min-width: 0;
+}
+.drawer-header > .icon-button {
+  flex-shrink: 0;
+  align-self: flex-start;
+}
+.place-summary {
+  margin: 0;
+  display: grid;
+  gap: 24px;
+}
+.place-summary dt {
+  margin-bottom: 8px;
+  color: var(--muted);
+  font-size: 13px;
+}
+.place-summary dd {
+  margin: 0;
+  font-size: 15px;
+  line-height: 1.7;
+  overflow-wrap: anywhere;
 }
 .drawer-header .eyebrow {
   font-size: 10px;

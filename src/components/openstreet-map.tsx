@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   MapContainer,
   TileLayer,
@@ -12,26 +12,45 @@ import L from "leaflet";
 import { hasCoordinates, locationLabel, type Place } from "@/lib/places";
 function Controls({
   places,
-  selected,
+  focus,
   picking,
   onPick,
 }: {
   places: Place[];
-  selected: string | null;
+  focus: { id: string; zoom: boolean } | null;
   picking: boolean;
   onPick: (lat: number, lng: number) => void;
 }) {
   const map = useMap();
+  const cameraPositions = useRef<string | null>(null);
+  const positions = JSON.stringify(
+    places
+      .filter(hasCoordinates)
+      .map((p) => ({ id: p.id, lat: p.lat!, lng: p.lng! })),
+  );
   useEffect(() => {
-    const located = places.filter(hasCoordinates);
-    const p = located.find((p) => p.id === selected);
-    if (p) map.flyTo([p.lat!, p.lng!], 16, { duration: 0.6 });
-    else if (located.length)
+    const located = JSON.parse(positions) as {
+      id: string;
+      lat: number;
+      lng: number;
+    }[];
+    const p = located.find((p) => p.id === focus?.id);
+    const changed = cameraPositions.current !== positions;
+    cameraPositions.current = positions;
+    if (p)
+      map.setView(
+        [p.lat, p.lng],
+        focus?.zoom === false ? map.getZoom() : Math.max(map.getZoom(), 16),
+        {
+          animate: false,
+        },
+      );
+    else if (changed && located.length)
       map.fitBounds(L.latLngBounds(located.map((p) => [p.lat!, p.lng!])), {
         padding: [45, 45],
         maxZoom: 15,
       });
-  }, [places, selected, map]);
+  }, [positions, focus, map]);
   useMapEvents({
     click: (e) => {
       if (picking) onPick(e.latlng.lat, e.latlng.lng);
@@ -47,12 +66,14 @@ function Controls({
 export default function PlaceMap({
   places,
   selected,
+  focus,
   onSelect,
   picking,
   onPick,
 }: {
   places: Place[];
   selected: string | null;
+  focus: { id: string; zoom: boolean } | null;
   onSelect: (id: string) => void;
   picking: boolean;
   onPick: (lat: number, lng: number) => void;
@@ -76,7 +97,7 @@ export default function PlaceMap({
         />
         <Controls
           places={places}
-          selected={selected}
+          focus={focus}
           picking={picking}
           onPick={onPick}
         />

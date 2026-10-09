@@ -9,6 +9,7 @@ out/
 *.tsbuildinfo
 *.xlsx
 01_instagram*
+hongkong_36_verified_addresses.csv
 .qa/
 .local-data/
 .agents/
