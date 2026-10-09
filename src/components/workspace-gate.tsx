@@ -68,27 +68,10 @@ export default function WorkspaceGate() {
         throw Error("새 계정은 이메일 주소로 가입해 주세요.");
       if (signUp && password.length < 8)
         throw Error("가입 비밀번호는 8자 이상 입력해 주세요.");
-      if (
-        !signUp &&
-        process.env.NODE_ENV === "development" &&
-        email === "admin@trip.local" &&
-        password === "admin"
-      ) {
-        const response = await fetch("/api/auth/local-admin", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ username: "admin", password }),
-        });
-        const data = await response.json();
-        if (!response.ok) throw Error(data.error || "로그인에 실패했습니다.");
-        const session = await supabase.auth.setSession(data);
-        if (session.error) throw session.error;
-      } else {
-        const result = signUp
-          ? await supabase.auth.signUp({ email, password })
-          : await supabase.auth.signInWithPassword({ email, password });
-        if (result.error) throw result.error;
-      }
+      const result = signUp
+        ? await supabase.auth.signUp({ email, password })
+        : await supabase.auth.signInWithPassword({ email, password });
+      if (result.error) throw result.error;
       setPassword("");
       if (signUp) setMessage("가입 확인 메일을 확인한 뒤 로그인해 주세요.");
     } catch (error) {

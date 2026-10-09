@@ -100,7 +100,7 @@ Instagram URL 정보를 읽는 서버 API를 사용하므로 일반 Next.js 배�
 
 ## 검증
 
-로컬 개발에서는 임시 계정을 만든 뒤 `admin / admin`으로 로그인할 수 있습니다. `/api/auth/local-admin`은 개발 모드·localhost·동일 출처 요청에만 동작하며, Git/Vercel에서 제외된 `.local-data/admin-account.json`의 기존 계정으로 정상 Supabase 인증을 수행합니다. 운영 빌드에서는 404로 차단됩니다. 원래 비밀번호는 변경하거나 클라이언트에 반환하지 않습니다. 일반 이메일 로그인은 기존대로 동작합니다.
+`admin` 아이디는 기존 `admin@trip.local` 계정의 별칭입니다. 입력한 비밀번호를 그대로 Supabase에서 검증하며, 로컬 전용 간편 로그인이나 비밀번호 우회 경로는 없습니다. 실제 비밀번호는 코드·Git에 포함하지 않습니다. 일반 이메일 로그인도 동일한 인증 절차를 사용합니다.
 
 ```sh
 npm run typecheck
