@@ -2,6 +2,10 @@
 
 Next.js + TypeScript로 만든 엑셀 기반 여행 장소 정리 앱입니다. OpenStreetMap과 Leaflet을 사용하고, Supabase를 연결하면 로그인과 계정별 비공개 저장을 사용할 수 있습니다.
 
+배포 주소: https://trip-xi-rosy.vercel.app
+
+Vercel Hobby와 서울 리전의 Supabase Free(`trip-db`)를 연결했습니다. GitHub `main` 브랜치 변경은 Vercel에서 자동 배포됩니다. 원본 엑셀, 환경변수, 로컬 도구 파일은 Git 및 배포 대상에서 제외됩니다.
+
 ## 실행
 
 Node.js 22 이상에서:

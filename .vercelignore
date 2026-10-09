@@ -1,15 +1,14 @@
 node_modules/
 .next/
 out/
+.git/
+.vercel/
 .env*
 !.env.example
 .npm-cache/
 *.tsbuildinfo
 *.xlsx
-# Private Instagram source files stay local.
 01_instagram*
 .qa/
-.vercel/
-# Local tooling installed by the Vercel integration.
 .agents/
 skills-lock.json
