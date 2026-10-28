@@ -98,6 +98,20 @@ Supabase Free 한도와 휴면 정책은 [공식 요금제](https://supabase.com
 
 Instagram URL 정보를 읽는 서버 API를 사용하므로 일반 Next.js 배포가 필요합니다. `npm run build` 후 `npm start`로 실행하며, Vercel에서는 Next.js 기본 빌드 설정을 사용하세요. 예전 정적 `out/` 결과는 이 기능을 포함하지 않으므로 배포하지 마세요. Google 지도를 사용하려면 위 Google Maps 환경변수도 등록합니다. 배포에 장소/DM 원본은 포함되지 않으며 사용자가 파일이나 URL을 가져와 저장합니다.
 
+## 임시 DB 상태 갱신 배치 (2026년 11월 17일까지)
+
+`GET /api/cron/database-heartbeat`는 서버 전용 `CRON_SECRET`으로 인증한 뒤 `database_heartbeat`의 상태 기록 한 건을 갱신합니다. 사용자 계정이나 여행 데이터는 변경하지 않습니다. 같은 요청이 반복되어도 행이 늘어나지 않습니다.
+
+1. 중지된 Supabase 프로젝트는 먼저 Dashboard에서 Resume 합니다. 이 배치는 중지된 프로젝트를 복구하지 못합니다.
+2. Supabase SQL Editor에서 `supabase/database-heartbeat.sql`을 한 번 실행합니다.
+3. Vercel의 Production 환경변수에 임의의 긴 `CRON_SECRET`을 등록하고, 기존 `NEXT_PUBLIC_SUPABASE_URL`과 서버 전용 `SUPABASE_SERVICE_ROLE_KEY`가 설정되어 있는지 확인합니다. 비밀키를 `NEXT_PUBLIC_` 변수에 넣지 않습니다.
+4. `vercel.json`을 포함해 배포합니다. Vercel Cron은 운영 배포에서 실행되며, 한국 시간 오전 9시대에 하루 한 번 호출합니다(Hobby는 분 단위 시각을 보장하지 않음).
+5. Vercel 프로젝트의 Cron Jobs에서 수동 실행하고 Logs의 HTTP 200 및 DB의 `select checked_at from public.database_heartbeat where id = 1;` 결과를 확인합니다. 인증 실패는 401, 설정 누락·DB 오류·5초 타임아웃은 503이며 자동 재시도는 없습니다.
+
+일정은 10월 28~31일과 11월 1~17일로 제한되어 있습니다. API는 **2026년 11월 18일 00:00 KST**부터 `expired`를 반환하며 DB에 접속하지 않습니다. Cron 표현식에는 연도가 없어 다음 해에도 HTTP 호출이 발생할 수 있지만 연도까지 고정한 API 종료 검사로 DB 갱신은 재개되지 않습니다. 11월 17일 이후 Vercel Cron Jobs를 비활성화하거나 `vercel.json`의 두 일정을 제거하고 재배포하면 예약 호출 자체도 제거됩니다.
+
+하루 한 번의 상태 갱신은 자동 일시 중지 방지를 보장하지 않습니다. [Supabase 중지 정책](https://supabase.com/docs/guides/platform/free-project-pausing), [Vercel Cron 인증](https://vercel.com/docs/cron-jobs/manage-cron-jobs), [Hobby 실행 제한](https://vercel.com/docs/cron-jobs/usage-and-pricing)을 참고하세요.
+
 ## 검증
 
 `admin` 아이디는 기존 `admin@trip.local` 계정의 별칭입니다. 입력한 비밀번호를 그대로 Supabase에서 검증하며, 로컬 전용 간편 로그인이나 비밀번호 우회 경로는 없습니다. 실제 비밀번호는 코드·Git에 포함하지 않습니다. 일반 이메일 로그인도 동일한 인증 절차를 사용합니다.
